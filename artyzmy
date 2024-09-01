@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Function to check if a directory is a git repository
+is_git_repo() {
+  git -C "$1" rev-parse --is-inside-work-tree &>/dev/null
+}
+
+# Function to get the first day of the specified or current month
+first_day_of_month() {
+  local year="$1"
+  local month="$2"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS date command
+    date -j -f "%Y-%m-%d" "$year-$month-01" +"%Y-%m-%d"
+  else
+    # Linux date command
+    date -d "$year-$month-01" +"%Y-%m-%d"
+  fi
+}
+
+# Function to get the currently configured Git user
+get_git_user() {
+  git -C "$1" config user.name
+}
+
+# Function to display the help message
+show_help() {
+  echo "Usage: $0 [-a author] [-p report_path] [-r repo_path] [-y year] [-m month] [-h|--help]"
+  echo ""
+  echo "Options:"
+  echo "  -a, --author       The author name to filter the git log."
+  echo "  -p, --report_path  The path to save the report."
+  echo "  -r, --repo_path    The path to the git repository."
+  echo "  -y, --year         The year for the report (default: current year)."
+  echo "  -m, --month        The month for the report (default: current month)."
+  echo "  -h, --help         Display this help message."
+  exit 0
+}
+
+# Parse arguments
+YEAR=$(date +%Y)
+MONTH=$(date +%m)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -a|--author) AUTHOR="$2"; shift 2 ;;
+    -p|--report_path) REPORT_PATH="$2"; shift 2 ;;
+    -r|--repo_path) REPO_PATH="$2"; shift 2 ;;
+    -y|--year) YEAR="$2"; shift 2 ;;
+    -m|--month) MONTH="$2"; shift 2 ;;
+    -h|--help) show_help ;;
+    *) echo "Unknown option: $1"; show_help ;;
+  esac
+done
+
+# Set default repo path to current directory if not provided
+REPO_PATH="${REPO_PATH:-.}"
+
+# Check if the provided path is a git repository
+if ! is_git_repo "$REPO_PATH"; then
+  echo "The provided path is not a git repository: $REPO_PATH" >&2
+  exit 1
+fi
+
+# Extract the repository name from the repo path
+REPO_NAME=$(basename "$REPO_PATH")
+
+# Set default author to the currently configured Git user if not provided
+AUTHOR="${AUTHOR:-$(get_git_user "$REPO_PATH")}"
+
+# Set default report path if not provided, including year, month, and repository name
+REPORT_PATH="${REPORT_PATH:-$HOME/Documents/reports/$YEAR-$MONTH/$REPO_NAME.txt}"
+
+# Ensure the report directory exists
+mkdir -p "$(dirname "$REPORT_PATH")"
+
+# Generate git log for the given author since the first day of the specified month and year
+LOG=$(git -C "$REPO_PATH" log --author="$AUTHOR" --since="$(first_day_of_month "$YEAR" "$MONTH")" --pretty=format:"%h - %s (%ci)")
+
+# Check if the log is empty
+if [[ -z "$LOG" ]]; then
+  echo "No git log found for author '$AUTHOR' for $YEAR-$MONTH in repository '$REPO_NAME'."
+else
+  # Write the log to the specified report path
+  echo "$LOG" > "$REPORT_PATH"
+  echo "Git log for author '$AUTHOR' for $YEAR-$MONTH has been written to $REPORT_PATH."
+fi
